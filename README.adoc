@@ -331,9 +331,48 @@ where company_id = '0195e993-108d-7137-a756-3decf2861d9e'
 
 So the problem was not related to actually incorrect UUID as written in error, there was internal error that cased wrongly reported UUID.
 
-== Appendix 2: Hang up bug
+== Appendix 2: Application does not exit
 
-Sometimes PG does not return from `executeQuery()`. There is the thread like the following if you take thread dump.
+Sometimes PG does not return from `executeQuery()`.
+
+Currently, there is the following line in link:src/main/resources/application.yml[]
+[source, yml]
+----
+    url: jdbc:postgresql://localhost:5437/bug_sample?Application_Name=sample&socketTimeout=15
+----
+
+This line causes the following messages in the log:
+
+[source]
+----
+2025-03-31T18:52:32.753+03:00  WARN 17928 --- [      Thread-27] com.zaxxer.hikari.pool.ProxyConnection   : postgresConnectionPool - Connection org.postgresql.jdbc.PgConnection@3ba65cca marked as broken because of SQLSTATE(08006), ErrorCode(0)
+
+org.postgresql.util.PSQLException: Ошибка ввода/вывода при отправке бэкенду
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:399) ~[postgresql-42.7.5.jar:42.7.5]
+	at org.postgresql.jdbc.PgStatement.executeInternal(PgStatement.java:517) ~[postgresql-42.7.5.jar:42.7.5]
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:434) ~[postgresql-42.7.5.jar:42.7.5]
+	at org.postgresql.jdbc.PgPreparedStatement.executeWithFlags(PgPreparedStatement.java:194) ~[postgresql-42.7.5.jar:42.7.5]
+	at org.postgresql.jdbc.PgPreparedStatement.executeQuery(PgPreparedStatement.java:137) ~[postgresql-42.7.5.jar:42.7.5]
+	at com.zaxxer.hikari.pool.ProxyPreparedStatement.executeQuery(ProxyPreparedStatement.java:52) ~[HikariCP-5.1.0.jar:na]
+	at com.zaxxer.hikari.pool.HikariProxyPreparedStatement.executeQuery(HikariProxyPreparedStatement.java) ~[HikariCP-5.1.0.jar:na]
+
+...
+
+2025-03-31T18:52:32.760+03:00 ERROR 17928 --- [      Thread-27] o.s.t.support.TransactionTemplate        : Application exception overridden by rollback exception
+
+org.springframework.dao.DataAccessResourceFailureException: PreparedStatementCallback; SQL [with company_data as (
+
+...
+----
+
+If you replace it with:
+
+[source, yml]
+----
+    url: jdbc:postgresql://localhost:5437/bug_sample?Application_Name=sample&socketTimeout=15
+----
+
+The application will lock instead and there is the thread like the following if you take thread dump:
 
 [source]
 ----
@@ -384,4 +423,4 @@ In this case the last log message is the following (and CPU usage drops to almos
 2025-03-31T13:11:56.007+03:00  INFO 42852 --- [           main] sample.test.TestServiceImpl              : Found 30000 companies
 ----
 
-In that case just kill program, json and log files are likely generated anyway.
+In that case just kill program, json and log files are likely generated anyway around that problem.

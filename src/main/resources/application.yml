@@ -1,7 +1,7 @@
 spring:
   datasource:
     platform: postgres
-    url: jdbc:postgresql://localhost:5437/bug_sample?Application_Name=sample
+    url: jdbc:postgresql://localhost:5437/bug_sample?Application_Name=sample&socketTimeout=15
     username: postgres
     password: postgres
     driverClassName: org.postgresql.Driver
