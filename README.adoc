@@ -176,10 +176,14 @@ OS: Windows 10 Pro (22H2 19045.5011),
 CPU: 13th Gen Intel(R) Core(TM) i9-13900K   3.00 GHz
 Memory: 128G
 
+Docker Engine v27.5.1
+
 WSL `uname -a`: `Linux docker-desktop 5.15.146.1-microsoft-standard-WSL2 #1 SMP Thu Jan 11 04:09:03 UTC 2024 x86_64 Linux`
 
 PostgreSQL: `PostgreSQL 17.2 (Debian 17.2-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit`
+
 container: postgres:17.2 (sha256:f95b70ff5ab0e8117b61767cfa7857573574da450a4119248840a8e829ad92da)
+
 PG JDBC: 42.7.5
 
 == Appendix: Unique bug
