@@ -10,8 +10,8 @@ import java.time.Duration;
 @Setter
 @Getter
 public class TestProperties {
-    private int threads = 10;
-    private int batchSize = 1000;
-    private Duration duration = Duration.ofMinutes(3);
+    private int threads = 40;
+    private int batchSize = 10_000;
+    private Duration duration = Duration.ofMinutes(7);
     private String failPath = "target/failures";
 }

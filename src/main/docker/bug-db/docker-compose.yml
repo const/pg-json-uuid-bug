@@ -1,7 +1,7 @@
 services:
   bug_db_postgres:
     container_name: bug_sample_postgres_container
-    image: postgres:17.2
+    image: postgres:17.4
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
