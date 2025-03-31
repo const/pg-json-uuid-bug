@@ -173,7 +173,9 @@ The corrupted uuids come in different form:
 The bug was detected on the following environment:
 
 OS: Windows 10 Pro (22H2 19045.5011),
+
 CPU: 13th Gen Intel(R) Core(TM) i9-13900K   3.00 GHz
+
 Memory: 128G
 
 Docker Engine v27.5.1
