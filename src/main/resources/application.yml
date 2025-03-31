@@ -1,0 +1,27 @@
+spring:
+  datasource:
+    platform: postgres
+    url: jdbc:postgresql://localhost:5437/bug_sample?Application_Name=sample
+    username: postgres
+    password: postgres
+    driverClassName: org.postgresql.Driver
+    hikari:
+      minimum-idle: 40
+      maximum-pool-size: 40
+      idle-timeout: 30000
+      max-lifetime: 2000000
+      connection-timeout: 30000
+      pool-name: postgresConnectionPool
+      connection-test-query: SELECT 1
+
+logging:
+  level:
+    org:
+      springframework:
+        jdbc: INFO
+
+test:
+  duration: 7m
+  threads: 40
+  batch-size: 10000
+  fail-path: target/failures

@@ -1,0 +1,326 @@
+= PostgreSQL JSON + UUID invalid data bug reproduction application
+:toc:
+
+The program is a short version of the performance test, so it has somewhat complicated structure. It does the following:
+
+* Fills database with some data
+* Executes a lot of queries that load hierarchical json
+* Parses JSON with jackson ObjectMapper
+
+The expected result is that the program works correctly and there is no errors.
+
+The actual result that sometimes json contains invalid UUIDs that are truncated or bigger than expected. ObjectMapper fails to convert it to DTO because UUIDS are in incorrect format.
+
+This is a critical problem because database silently returns incorrect results and the problem is detected only because of additional validation in JSON consumer. The problem happens when database is highly loaded.
+
+It is not completely clear whether this is database bug, compiler bug, CPU bug, docker bug, or interaction of some bugs. The primary suspect is database (or incorrect compiler options for database).
+
+NOTE: the application detects bug related to UUIDs, there might be outer bugs related to high load, but the program does not detect them.
+
+== Starting database
+
+The database is started using docker compose:
+
+[source]
+----
+cd src/main/docker/bug-db
+docker compose up
+----
+
+Or in background mode:
+
+[source]
+----
+cd src/main/docker/bug-db
+docker compose up -d
+----
+
+After finishing testing, remove leftover data and containers:
+
+[source]
+----
+cd src/main/docker/bug-db
+docker compose down -v
+----
+
+The database starts on the port 5437. If this needs to be changed, modify the following files:
+
+* link:src/main/docker/bug-db/docker-compose.yml[]
+* link:src/main/resources/application.yml[]
+
+== Running from IDEA
+
+1. Open project as `pom.xml` in the root project directory.
+2. Load maven dependencies
+3. Start link:src/main/java/sample/Main.java[] file
+
+== Test results
+
+On the first run, the program creates sample database and fills it with initial data. On subsequent runs, program re-executes create script and inserts records, if table `company` is empty.
+
+On each start it creates directory with name like `target\failures\2025-03-31T01-48-45Z`. The directory name is written in log like:
+
+[source]
+----
+2025-03-31T04:48:45.173+03:00  INFO 30316 --- [           main] sample.test.TestServiceImpl              : Saving results of test in the directory: D:\projects\articles\pg-json-bug\target\failures\2025-03-31T01-48-45Z
+----
+
+The program runs 7 minutes by default, it used 40 threads, and batch size 10000. Test run time, thread count and batch size are important for reproduction, if these parameters are reduced bug appearance becomes rarer or bug stops to reproduce. If bug does not appear, it might sense to try increasing these parameters.
+
+The program detects failures often, but not always, sometimes 1-2 failures were detected per run, sometimes hundreds. If there were failures, the log will contain the line:
+
+[source]
+----
+2025-03-31T04:51:46.259+03:00  INFO 30316 --- [           main] sample.test.TestServiceImpl              : Run 5290 operations, detected 1 failure(s)
+----
+
+If failures detected, it writers two files like the following for each failure:
+
+* `target/failures/2025-03-31T01-48-45Z/000000077.log` - exception stack trace for failure
+* `target/failures/2025-03-31T01-48-45Z/000000077.json` - json as string returned from the database (not present if json was not loaded)
+
+
+The log file contains exceptions like:
+
+[source]
+----
+Caused by: com.fasterxml.jackson.databind.exc.InvalidFormatException: Cannot deserialize value of type `java.util.UUID` from String "0195e993-10": UUID has to be represented by standard 36-char representation
+ at [Source: REDACTED (`StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION` disabled); line: 1, column: 6179664] (through reference chain: java.util.ArrayList[5127]->sample.dto.CompanyDto["contactPersons"]->java.util.ArrayList[1]->sample.dto.ContactPersonDto["id"])
+	at com.fasterxml.jackson.databind.exc.InvalidFormatException.from(InvalidFormatException.java:67)
+	at com.fasterxml.jackson.databind.DeserializationContext.weirdStringException(DeserializationContext.java:1959)
+	at com.fasterxml.jackson.databind.DeserializationContext.handleWeirdStringValue(DeserializationContext.java:1245)
+	at com.fasterxml.jackson.databind.deser.std.UUIDDeserializer._badFormat(UUIDDeserializer.java:92)
+	at com.fasterxml.jackson.databind.deser.std.UUIDDeserializer._deserialize(UUIDDeserializer.java:56)
+----
+
+After that the corresponding JSON file could be verified. One needs to search for invalid uuid in the quoted form like `"0195e993-10"`. The fragment like the following will be found;
+
+[source, json]
+----
+{
+  "id": "0195e993-10a2-7525-8f8c-d03fecf6fb02",
+  "name": "Klocko-Schmeler R15323",
+  "industry": "International Trade and Development",
+  "description": "User-friendly holistic application",
+  "url": "https://www.gretta-conroy.io/?illum=vel&officia=similique",
+  "verified": null,
+  "contactPersons": [
+    {
+      "id": "0195e993-10a2-7a24-b19d-098189e7a279",
+      "name": "Mrs. Edwardo Weimann",
+      "position": "Producer",
+      "details": [
+        {
+          "type": "TELEGRAM",
+          "value": "@pok.metz15323"
+        }
+      ]
+    },
+    {
+      "id": "0195e993-10",
+      "name": "Ms. Deeann Hane",
+      "position": "Agent",
+      "details": [
+        {
+          "type": "PHONE",
+          "value": "(505) 488-5164"
+        }
+      ]
+    }
+  ],
+  "offices": [
+    {
+      "id": "0195e993-10a2-759c-ad50-29705dbbbdb9",
+      "name": "Sally Forth",
+      "city": "Oberbrunnershire",
+      "address": "1892 Rosaura Tunnel, Cristton, CT 22683"
+    }
+  ]
+}
+----
+
+After that it is possible to check if there is such record in the database using parent:
+
+[source, sql]
+----
+select * from contact_person
+where company_id = '0195e993-10a2-7525-8f8c-d03fecf6fb02'
+----
+
+There is a similar record, but with correct uuid, usually they are truncated, but sometimes I saw larger than normal in original program, but not in the test results.
+
+Incorrect UUID locations could be found by regexps:
+
+[source]
+----
+// raw PG json
+"id" : "(?![a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
+
+// JSON formatted in IDEA
+"id": "(?![a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
+----
+
+The corrupted uuids come in different form:
+
+* `0195e993-10a2-7525-8f8c-d03fecf6fb02` - correct uuid
+* `0195e993-0f37-7ba3-a76c-95070715dc`
+* `0195e993-10` - truncated
+* `0195e993-11e8-75f7-9dd4-` - truncated on `-` (error was: `Can only construct UUIDs from byte[16]; got 18 bytes`)
+
+
+== Environment
+
+The bug was detected on the following environment:
+
+OS: Windows 10 Pro (22H2 19045.5011),
+CPU: 13th Gen Intel(R) Core(TM) i9-13900K   3.00 GHz
+Memory: 128G
+
+WSL `uname -a`: `Linux docker-desktop 5.15.146.1-microsoft-standard-WSL2 #1 SMP Thu Jan 11 04:09:03 UTC 2024 x86_64 Linux`
+
+PostgreSQL: `PostgreSQL 17.2 (Debian 17.2-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit`
+container: postgres:17.2 (sha256:f95b70ff5ab0e8117b61767cfa7857573574da450a4119248840a8e829ad92da)
+PG JDBC: 42.7.5
+
+== Appendix: Unique bug
+
+I have once seen the following error:
+
+[source]
+----
+org.springframework.dao.DataIntegrityViolationException: PreparedStatementCallback; SQL [with company_data as (
+    select
+        json_build_object(
+            'id', c.company_id,
+            'name', c."name",
+            'industry', c.industry,
+            'description', c.description,
+            'url', c.url,
+            'verified', (
+                select
+                    json_build_object(
+                        'timestamp', vi."timestamp",
+                        'status', vi.status,
+                        'comment', vi."comment",
+                        'user', vi.username
+                    )
+                from verification_info vi where vi.company_id = c.company_id
+            ),
+            'contactPersons', (
+                select
+                    coalesce(json_agg(
+                        json_build_object(
+                            'id', cp.contact_person_id,
+                            'name', cp.name,
+                            'position', cp.position,
+                            'details', (
+                                select
+                                    coalesce(json_agg(
+                                        json_build_object(
+                                            'type', cd.contact_type,
+                                            'value', cd.value
+                                        )
+                                    ), json_build_array())
+                                from contact_detail cd
+                                where cd.contact_person_id = cp.contact_person_id
+                            )
+                        )
+                    ), json_build_array())
+                from contact_person cp
+                where cp.company_id = c.company_id
+            ),
+            'offices', (
+                select
+                    coalesce(json_agg(
+                        json_build_object(
+                            'id', co.office_id,
+                            'name', co.name,
+                            'city', co.city,
+                            'address', co.address
+                        )
+                    ), json_build_array())
+                from company_office co
+                where co.company_id = c.company_id
+            )
+        ) as company_dto
+    from company c where c.company_id = any(?)
+)
+select coalesce(json_agg(company_dto), json_build_array()) from company_data;
+]; ERROR: invalid input syntax for type uuid: "0195e993-108d-7137-a756-3decf2861d9e"
+  Где: unnamed portal parameter $1 = '...'
+	at org.springframework.jdbc.support.SQLStateSQLExceptionTranslator.doTranslate(SQLStateSQLExceptionTranslator.java:118)
+	at org.springframework.jdbc.support.AbstractFallbackSQLExceptionTranslator.translate(AbstractFallbackSQLExceptionTranslator.java:107)
+	at org.springframework.jdbc.support.AbstractFallbackSQLExceptionTranslator.translate(AbstractFallbackSQLExceptionTranslator.java:116)
+	at org.springframework.jdbc.core.JdbcTemplate.translateException(JdbcTemplate.java:1556)
+	at org.springframework.jdbc.core.JdbcTemplate.execute(JdbcTemplate.java:677)
+	at org.springframework.jdbc.core.JdbcTemplate.query(JdbcTemplate.java:723)
+	at org.springframework.jdbc.core.JdbcTemplate.query(JdbcTemplate.java:754)
+	at org.springframework.jdbc.core.JdbcTemplate.query(JdbcTemplate.java:773)
+	at sample.test.TestServiceImpl.lambda$runTest$7(TestServiceImpl.java:145)
+	at org.springframework.transaction.support.TransactionOperations.lambda$executeWithoutResult$0(TransactionOperations.java:68)
+	at org.springframework.transaction.support.TransactionTemplate.execute(TransactionTemplate.java:140)
+	at org.springframework.transaction.support.TransactionOperations.executeWithoutResult(TransactionOperations.java:67)
+	at sample.test.TestServiceImpl.runTest(TestServiceImpl.java:144)
+	at sample.test.TestServiceImpl.lambda$test$2(TestServiceImpl.java:125)
+	at java.base/java.util.concurrent.CompletableFuture$AsyncRun.run$$$capture(CompletableFuture.java:1804)
+	at java.base/java.util.concurrent.CompletableFuture$AsyncRun.run(CompletableFuture.java)
+	at --- Async.Stack.Trace --- (captured by IntelliJ IDEA debugger)
+	at java.base/java.util.concurrent.CompletableFuture$AsyncRun.<init>(CompletableFuture.java:1790)
+	at java.base/java.util.concurrent.CompletableFuture.asyncRunStage(CompletableFuture.java:1818)
+	at java.base/java.util.concurrent.CompletableFuture.runAsync(CompletableFuture.java:2018)
+	at sample.test.TestServiceImpl.lambda$test$3(TestServiceImpl.java:125)
+	at java.base/java.util.stream.IntPipeline$1$1.accept(IntPipeline.java:180)
+	at java.base/java.util.stream.Streams$RangeIntSpliterator.forEachRemaining(Streams.java:104)
+	at java.base/java.util.Spliterator$OfInt.forEachRemaining(Spliterator.java:712)
+	at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
+	at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+	at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:575)
+	at java.base/java.util.stream.AbstractPipeline.evaluateToArrayNode(AbstractPipeline.java:260)
+	at java.base/java.util.stream.ReferencePipeline.toArray(ReferencePipeline.java:616)
+	at sample.test.TestServiceImpl.test(TestServiceImpl.java:126)
+	at sample.Main.run(Main.java:28)
+	at org.springframework.boot.SpringApplication.lambda$callRunner$5(SpringApplication.java:788)
+	at org.springframework.util.function.ThrowingConsumer$1.acceptWithException(ThrowingConsumer.java:82)
+	at org.springframework.util.function.ThrowingConsumer.accept(ThrowingConsumer.java:60)
+	at org.springframework.util.function.ThrowingConsumer$1.accept(ThrowingConsumer.java:86)
+	at org.springframework.boot.SpringApplication.callRunner(SpringApplication.java:796)
+	at org.springframework.boot.SpringApplication.callRunner(SpringApplication.java:787)
+	at org.springframework.boot.SpringApplication.lambda$callRunners$3(SpringApplication.java:772)
+	at java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.accept(ForEachOps.java:184)
+	at java.base/java.util.stream.SortedOps$SizedRefSortingSink.end(SortedOps.java:357)
+	at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:510)
+	at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
+	at java.base/java.util.stream.ForEachOps$ForEachOp.evaluateSequential(ForEachOps.java:151)
+	at java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.evaluateSequential(ForEachOps.java:174)
+	at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
+	at java.base/java.util.stream.ReferencePipeline.forEach(ReferencePipeline.java:596)
+	at org.springframework.boot.SpringApplication.callRunners(SpringApplication.java:772)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:325)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
+	at sample.Main.main(Main.java:22)
+Caused by: org.postgresql.util.PSQLException: ERROR: invalid input syntax for type uuid: "0195e993-108d-7137-a756-3decf2861d9e"
+  Где: unnamed portal parameter $1 = '...'
+	at org.postgresql.core.v3.QueryExecutorImpl.receiveErrorResponse(QueryExecutorImpl.java:2733)
+	at org.postgresql.core.v3.QueryExecutorImpl.processResults(QueryExecutorImpl.java:2420)
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:372)
+	at org.postgresql.jdbc.PgStatement.executeInternal(PgStatement.java:517)
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:434)
+	at org.postgresql.jdbc.PgPreparedStatement.executeWithFlags(PgPreparedStatement.java:194)
+	at org.postgresql.jdbc.PgPreparedStatement.executeQuery(PgPreparedStatement.java:137)
+	at com.zaxxer.hikari.pool.ProxyPreparedStatement.executeQuery(ProxyPreparedStatement.java:52)
+	at com.zaxxer.hikari.pool.HikariProxyPreparedStatement.executeQuery(HikariProxyPreparedStatement.java)
+	at org.springframework.jdbc.core.JdbcTemplate$1.doInPreparedStatement(JdbcTemplate.java:732)
+	at org.springframework.jdbc.core.JdbcTemplate.execute(JdbcTemplate.java:658)
+	... 46 more
+----
+
+It seems the corruption might happen for input parameters as well. The following query worked correctly:
+
+[source]
+----
+select * from company
+where company_id = '0195e993-108d-7137-a756-3decf2861d9e'
+----
+
+So the problem was not related to actually incorrect UUID as written in error, there was internal error that cased wrongly reported UUID.

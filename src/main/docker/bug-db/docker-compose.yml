@@ -1,0 +1,23 @@
+services:
+  bug_db_postgres:
+    container_name: bug_sample_postgres_container
+    image: postgres:17.2
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: bug_sample
+      PGDATA: /data/postgres
+    volumes:
+      - bug_sample_postgres:/data/postgres
+    ports:
+      - "5437:5432"
+    networks:
+      - bug_sample_postgres
+    restart: unless-stopped
+
+networks:
+  bug_sample_postgres:
+    driver: bridge
+
+volumes:
+  bug_sample_postgres:
