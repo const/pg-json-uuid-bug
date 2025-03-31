@@ -188,7 +188,7 @@ container: postgres:17.4
 
 PG JDBC: 42.7.5
 
-== Appendix: Unique bug
+== Appendix 1: Unique bug
 
 I have once seen the following error:
 
@@ -330,3 +330,58 @@ where company_id = '0195e993-108d-7137-a756-3decf2861d9e'
 ----
 
 So the problem was not related to actually incorrect UUID as written in error, there was internal error that cased wrongly reported UUID.
+
+== Appendix 2: Hang up bug
+
+Sometimes PG does not return from `executeQuery()`. There is the thread like the following if you take thread dump.
+
+[source]
+----
+"Thread-1" #66 [40320] prio=5 os_prio=0 cpu=16812.50ms elapsed=474.93s tid=0x000002471f5b68d0 nid=40320 runnable  [0x0000004fe9efe000]
+   java.lang.Thread.State: RUNNABLE
+	at sun.nio.ch.Net.poll(java.base@21/Native Method)
+	at sun.nio.ch.NioSocketImpl.park(java.base@21/NioSocketImpl.java:191)
+	at sun.nio.ch.NioSocketImpl.park(java.base@21/NioSocketImpl.java:201)
+	at sun.nio.ch.NioSocketImpl.implRead(java.base@21/NioSocketImpl.java:309)
+	at sun.nio.ch.NioSocketImpl.read(java.base@21/NioSocketImpl.java:346)
+	at sun.nio.ch.NioSocketImpl$1.read(java.base@21/NioSocketImpl.java:796)
+	at java.net.Socket$SocketInputStream.read(java.base@21/Socket.java:1099)
+	at org.postgresql.core.VisibleBufferedInputStream.readMore(VisibleBufferedInputStream.java:192)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:159)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:144)
+	at org.postgresql.core.VisibleBufferedInputStream.read(VisibleBufferedInputStream.java:76)
+	at org.postgresql.core.PGStream.receiveChar(PGStream.java:476)
+	at org.postgresql.core.v3.QueryExecutorImpl.processResults(QueryExecutorImpl.java:2174)
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:372)
+	at org.postgresql.jdbc.PgStatement.executeInternal(PgStatement.java:517)
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:434)
+	at org.postgresql.jdbc.PgPreparedStatement.executeWithFlags(PgPreparedStatement.java:194)
+	at org.postgresql.jdbc.PgPreparedStatement.executeQuery(PgPreparedStatement.java:137)
+	at com.zaxxer.hikari.pool.ProxyPreparedStatement.executeQuery(ProxyPreparedStatement.java:52)
+	at com.zaxxer.hikari.pool.HikariProxyPreparedStatement.executeQuery(HikariProxyPreparedStatement.java)
+	at org.springframework.jdbc.core.JdbcTemplate$1.doInPreparedStatement(JdbcTemplate.java:732)
+	at org.springframework.jdbc.core.JdbcTemplate.execute(JdbcTemplate.java:658)
+	at org.springframework.jdbc.core.JdbcTemplate.query(JdbcTemplate.java:723)
+	at org.springframework.jdbc.core.JdbcTemplate.query(JdbcTemplate.java:754)
+	at org.springframework.jdbc.core.JdbcTemplate.query(JdbcTemplate.java:773)
+	at sample.test.TestServiceImpl.lambda$runTest$5(TestServiceImpl.java:150)
+	at sample.test.TestServiceImpl$$Lambda/0x00000246d7330890.accept(Unknown Source)
+	at org.springframework.transaction.support.TransactionOperations.lambda$executeWithoutResult$0(TransactionOperations.java:68)
+	at org.springframework.transaction.support.TransactionOperations$$Lambda/0x00000246d732d758.doInTransaction(Unknown Source)
+	at org.springframework.transaction.support.TransactionTemplate.execute(TransactionTemplate.java:140)
+	at org.springframework.transaction.support.TransactionOperations.executeWithoutResult(TransactionOperations.java:67)
+	at sample.test.TestServiceImpl.runTest(TestServiceImpl.java:149)
+	at sample.test.TestServiceImpl.lambda$test$2(TestServiceImpl.java:127)
+	at sample.test.TestServiceImpl$$Lambda/0x00000246d7329b30.run(Unknown Source)
+	at java.lang.Thread.runWith(java.base@21/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21/Thread.java:1583)
+----
+
+In this case the last log message is the following (and CPU usage drops to almost 0):
+
+[source]
+----
+2025-03-31T13:11:56.007+03:00  INFO 42852 --- [           main] sample.test.TestServiceImpl              : Found 30000 companies
+----
+
+In that case just kill program, json and log files are likely generated anyway.

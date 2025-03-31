@@ -26,6 +26,7 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
@@ -119,12 +120,17 @@ public class TestServiceImpl implements TestService {
         assert companyIds != null;
         log.info("Found {} companies ", companyIds.size());
         Instant deadline = Instant.now().plus(testProperties.getDuration());
-        try (var threads = Executors.newCachedThreadPool()) {
-            var result = IntStream.range(0, testProperties.getThreads())
-                    .mapToObj(i -> CompletableFuture.runAsync(() -> runTest(deadline, companyIds, outPath), threads))
-                    .toArray(CompletableFuture[]::new);
-            CompletableFuture.allOf(result).join();
+        var lock = new Semaphore(0);
+        for (int i = 0; i < testProperties.getThreads(); i++) {
+            new Thread(() -> {
+                try {
+                    runTest(deadline, companyIds, outPath);
+                } finally {
+                    lock.release();
+                }
+            }).start();
         }
+        lock.acquireUninterruptibly(testProperties.getThreads());
         log.info("Run {} operations, detected {} failure(s)", execution.get(), failures.get());
     }
 
