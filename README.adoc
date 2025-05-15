@@ -1,6 +1,11 @@
 = PostgreSQL JSON + UUID invalid data bug reproduction application
 :toc:
 
+[IMPORTANT]
+====
+The bug stopped to be reproduced after  Microcode Update from 115 to 12C (for Intel Core i9-13900K). So the case could be considered closed and the cause is CPU. However, it is not clear why there were no other symptoms except for UUID corruption. I have not tried intermediate versions of microcode updates, so I'm unable to pin down specific version that fixed the bug.
+====
+
 The program is a short version of the performance test, so it has somewhat complicated structure. It does the following:
 
 * Fills database with some data
